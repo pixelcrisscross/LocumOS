@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useSession, signOut } from "next-auth/react";
 
 /* ─── Logo SVG ─────────────────────────────────────────────── */
 function LocumOSLogo({ size = 32 }: { size?: number }) {
@@ -345,13 +346,15 @@ function AvatarDropdown({ name, role, initials, mode }: AvatarDropdownProps) {
 
           {/* Sign out */}
           <div style={{ padding: "0.375rem", borderTop: "1px solid rgba(59,130,246,0.08)" }}>
-            <button style={{
-              width: "100%", display: "flex", alignItems: "center", gap: "0.625rem",
-              padding: "0.6rem 0.75rem", borderRadius: "9px",
-              background: "none", border: "none", color: "#f87171",
-              fontSize: "0.825rem", cursor: "pointer", fontFamily: "inherit",
-              transition: "background 0.15s",
-            }}
+            <button
+              onClick={() => signOut({ callbackUrl: "/login" })}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", gap: "0.625rem",
+                padding: "0.6rem 0.75rem", borderRadius: "9px",
+                background: "none", border: "none", color: "#f87171",
+                fontSize: "0.825rem", cursor: "pointer", fontFamily: "inherit",
+                transition: "background 0.15s",
+              }}
               onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgba(239,68,68,0.08)"}
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
             >
@@ -381,12 +384,18 @@ export interface HeaderProps {
 export default function Header({
   title,
   subtitle,
-  mode = "hospital",
-  userName = "Admin — Apollo",
-  userRole = "Hospital Administrator",
-  userInitials = "AH",
+  mode,
+  userName,
+  userRole,
+  userInitials,
   actions,
 }: HeaderProps) {
+  const { data: session } = useSession();
+  const sessionUser = session?.user as any;
+  const resolvedMode = mode ?? (sessionUser?.role === "doctor" ? "doctor" : "hospital");
+  const resolvedName = userName ?? sessionUser?.name ?? (resolvedMode === "hospital" ? "Hospital Admin" : "Doctor");
+  const resolvedRole = userRole ?? (resolvedMode === "hospital" ? "Hospital Administrator" : sessionUser?.specialty ?? "Doctor");
+  const resolvedInitials = userInitials ?? resolvedName.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
   return (
     <>
       <header style={{
@@ -420,10 +429,10 @@ export default function Header({
           {actions}
           <NotificationBell />
           <AvatarDropdown
-            name={userName}
-            role={userRole}
-            initials={userInitials}
-            mode={mode}
+            name={resolvedName}
+            role={resolvedRole}
+            initials={resolvedInitials}
+            mode={resolvedMode}
           />
         </div>
       </header>

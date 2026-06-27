@@ -1,135 +1,105 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSession } from "next-auth/react";
 import ShiftCard, { ShiftCardData } from "@/components/shared/ShiftCard";
+import EmptyState from "@/components/shared/EmptyState";
 
-const shifts: ShiftCardData[] = [
-  {
-    id: "s1",
-    hospital: "Apollo Hospitals",
-    hospitalInitials: "AH",
-    hospitalType: "Multi-speciality",
-    specialty: "Emergency Medicine",
-    payRate: 4500,
-    date: "Today",
-    time: "8:00 PM – 8:00 AM",
-    duration: "12 hr",
-    location: "Bannerghatta Road, Bengaluru",
-    distance: "1.2 km",
-    urgency: "urgent",
-    seatsLeft: 1,
-    bidsCount: 4,
-    skills: ["ICU", "Trauma"],
-    postedAgo: "8 min ago",
-  },
-  {
-    id: "s2",
-    hospital: "Manipal Hospital",
-    hospitalInitials: "MH",
-    hospitalType: "Tertiary Care",
-    specialty: "Emergency Medicine",
-    payRate: 3800,
-    date: "Tomorrow",
-    time: "7:00 AM – 7:00 PM",
-    duration: "12 hr",
-    location: "Old Airport Rd, Bengaluru",
-    distance: "3.4 km",
-    urgency: "high",
-    seatsLeft: 2,
-    bidsCount: 7,
-    skills: ["ACLS", "Paeds EM"],
-    postedAgo: "32 min ago",
-  },
-  {
-    id: "s3",
-    hospital: "Fortis Hospital",
-    hospitalInitials: "FH",
-    hospitalType: "Super-speciality",
-    specialty: "Anaesthesiology",
-    payRate: 5200,
-    date: "27 Jun",
-    time: "6:00 AM – 2:00 PM",
-    duration: "8 hr",
-    location: "Cunningham Rd, Bengaluru",
-    distance: "4.8 km",
-    urgency: "normal",
-    seatsLeft: 1,
-    bidsCount: 2,
-    skills: ["General Anaesthesia", "Spinal"],
-    postedAgo: "1 hr ago",
-  },
-  {
-    id: "s4",
-    hospital: "Narayana Health",
-    hospitalInitials: "NH",
-    hospitalType: "Cardiac Centre",
-    specialty: "Cardiology",
-    payRate: 6000,
-    date: "28 Jun",
-    time: "9:00 AM – 5:00 PM",
-    duration: "8 hr",
-    location: "Hosur Rd, Bengaluru",
-    distance: "6.1 km",
-    urgency: "normal",
-    seatsLeft: 3,
-    bidsCount: 1,
-    skills: ["Echocardiography", "STEMI"],
-    postedAgo: "2 hr ago",
-  },
-  {
-    id: "s5",
-    hospital: "Columbia Asia",
-    hospitalInitials: "CA",
-    hospitalType: "Multi-speciality",
-    specialty: "General Medicine",
-    payRate: 2800,
-    date: "29 Jun",
-    time: "2:00 PM – 10:00 PM",
-    duration: "8 hr",
-    location: "Yeshwanthpur, Bengaluru",
-    distance: "8.9 km",
-    urgency: "normal",
-    seatsLeft: 2,
-    bidsCount: 9,
-    skills: ["OPD", "Ward rounds"],
-    postedAgo: "3 hr ago",
-  },
-  {
-    id: "s6",
-    hospital: "Sakra World Hospital",
-    hospitalInitials: "SW",
-    hospitalType: "Super-speciality",
-    specialty: "Neurology",
-    payRate: 5500,
-    date: "30 Jun",
-    time: "8:00 AM – 4:00 PM",
-    duration: "8 hr",
-    location: "Bellandur, Bengaluru",
-    distance: "11.2 km",
-    urgency: "high",
-    seatsLeft: 1,
-    bidsCount: 3,
-    skills: ["Stroke", "Epilepsy"],
-    postedAgo: "4 hr ago",
-  },
-];
+type SortKey = "pay" | "date" | "bids";
 
-type SortKey = "distance" | "pay" | "date";
-type FilterKey = "all" | string;
+function mapApiShift(s: any): ShiftCardData {
+  const words = (s.hospitalId ?? "H").split("-");
+  const initials = words.map((w: string) => w[0]?.toUpperCase() ?? "").join("").slice(0, 2) || "HX";
+  return {
+    id: s.shiftId,
+    hospital: s.hospitalName ?? s.hospitalId ?? "Hospital",
+    hospitalInitials: initials,
+    hospitalType: "Healthcare",
+    specialty: s.specialty,
+    payRate: Number(s.payRate),
+    date: s.date,
+    time: s.time,
+    duration: s.duration ?? "8 hr",
+    location: s.location,
+    distance: "",
+    urgency: s.urgency === "urgent" ? "urgent" : s.urgency === "high" ? "high" : "normal",
+    seatsLeft: s.seatsLeft ?? 1,
+    bidsCount: s.bidsCount ?? 0,
+    skills: [],
+    postedAgo: timeAgo(s.createdAt),
+  };
+}
+
+function timeAgo(iso: string) {
+  if (!iso) return "Recently";
+  const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 60) return "Just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hr ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
 
 export default function ShiftFeed() {
-  const [sort, setSort] = useState<SortKey>("distance");
-  const [filter, setFilter] = useState<FilterKey>("all");
+  const { data: session } = useSession();
+  const [shifts, setShifts] = useState<ShiftCardData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [sort, setSort] = useState<SortKey>("date");
+  const [filter, setFilter] = useState<string>("all");
+
+  const fetchShifts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/shifts/list");
+      if (!res.ok) throw new Error("Failed to fetch shifts");
+      const data = await res.json();
+      setShifts((data.shifts ?? []).map(mapApiShift));
+      setError("");
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchShifts();
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchShifts, 30000);
+    return () => clearInterval(interval);
+  }, [fetchShifts]);
 
   const specialties = ["all", ...Array.from(new Set(shifts.map(s => s.specialty)))];
 
   const sorted = [...shifts]
     .filter(s => filter === "all" || s.specialty === filter)
     .sort((a, b) => {
-      if (sort === "distance") return parseFloat(a.distance ?? "99") - parseFloat(b.distance ?? "99");
       if (sort === "pay") return b.payRate - a.payRate;
-      return 0;
+      if (sort === "bids") return (b.bidsCount ?? 0) - (a.bidsCount ?? 0);
+      return 0; // date: keep DB order (newest first from API)
     });
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "0.875rem", padding: "5rem", color: "#334155" }}>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" style={{ animation: "orbit-spin 0.8s linear infinite" }}>
+          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+        </svg>
+        <span style={{ fontSize: "0.9rem" }}>Loading shifts from DynamoDB…</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "12px", padding: "1.5rem", color: "#f87171", textAlign: "center" }}>
+        <p style={{ fontWeight: "600", marginBottom: "0.5rem" }}>Failed to load shifts</p>
+        <p style={{ fontSize: "0.85rem", color: "#475569", marginBottom: "1rem" }}>{error}</p>
+        <button onClick={fetchShifts} style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.25)", padding: "0.5rem 1.25rem", borderRadius: "8px", cursor: "pointer", fontSize: "0.875rem", fontFamily: "inherit" }}>
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -137,7 +107,7 @@ export default function ShiftFeed() {
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
         {/* Specialty filter */}
         <div style={{ display: "flex", gap: "0.25rem", background: "rgba(15,22,41,0.7)", padding: "0.25rem", borderRadius: "10px", border: "1px solid rgba(59,130,246,0.1)", flexWrap: "wrap" }}>
-          {specialties.slice(0, 4).map(sp => (
+          {specialties.slice(0, 5).map(sp => (
             <button key={sp} onClick={() => setFilter(sp)} style={{
               padding: "0.35rem 0.875rem", borderRadius: "8px", border: "none",
               background: filter === sp ? "rgba(59,130,246,0.18)" : "transparent",
@@ -145,15 +115,15 @@ export default function ShiftFeed() {
               fontSize: "0.8rem", fontWeight: filter === sp ? "600" : "500",
               cursor: "pointer", fontFamily: "inherit", transition: "all 0.18s",
             }}>
-              {sp === "all" ? `All (${shifts.length})` : sp}
+              {sp === "all" ? `All Shifts (${shifts.length})` : sp}
             </button>
           ))}
         </div>
 
-        {/* Sort controls */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.375rem" }}>
+        {/* Sort + refresh */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <span style={{ color: "#334155", fontSize: "0.775rem", fontWeight: "500" }}>Sort:</span>
-          {(["distance", "pay", "date"] as SortKey[]).map(s => (
+          {(["date", "pay", "bids"] as SortKey[]).map(s => (
             <button key={s} onClick={() => setSort(s)} style={{
               padding: "0.3rem 0.75rem", borderRadius: "7px",
               border: sort === s ? "1px solid rgba(59,130,246,0.3)" : "1px solid rgba(59,130,246,0.08)",
@@ -162,18 +132,27 @@ export default function ShiftFeed() {
               fontSize: "0.775rem", fontWeight: sort === s ? "600" : "500",
               cursor: "pointer", transition: "all 0.18s", fontFamily: "inherit",
             }}>
-              {s === "pay" ? "Pay Rate" : s === "distance" ? "Distance" : "Date"}
+              {s === "pay" ? "Pay Rate" : s === "bids" ? "Most Bids" : "Latest"}
             </button>
           ))}
+          <button onClick={fetchShifts} title="Refresh" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.15)", borderRadius: "7px", color: "#60a5fa", padding: "0.3rem 0.6rem", cursor: "pointer", fontSize: "0.875rem", fontFamily: "inherit" }}>
+            ↺
+          </button>
         </div>
       </div>
 
       {/* Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "1rem" }}>
-        {sorted.map(shift => (
-          <ShiftCard key={shift.id} shift={shift} mode="doctor" />
-        ))}
-      </div>
+      {sorted.length === 0 ? (
+        <EmptyState
+          title="No shifts available"
+          description="Check back soon — new shifts are posted every few minutes."
+          icon="shifts"
+        />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: "1rem" }}>
+          {sorted.map(shift => <ShiftCard key={shift.id} shift={shift} mode="doctor" />)}
+        </div>
+      )}
     </div>
   );
 }
